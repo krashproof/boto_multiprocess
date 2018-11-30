@@ -1,7 +1,10 @@
 #!/usr/bin/env python3
 
 import boto3
+import botocore
 import json
+import os
+from  pygments import highlight, lexers, formatters
 import argparse
 import configparser
 #from boto3.s3.connection import S3Connection
@@ -20,24 +23,66 @@ def get_s3_objectnames(bucket, prefix):
         file = file[len(prefix + '/'):]
         object_names.append(file)
 
+    result = json.dumps(object_names,
+                        sort_keys=True,
+                        indent=2)
+
+    print(highlight(
+              result,
+              lexers.JsonLexer(),
+              formatters.TerminalFormatter()
+    ))
+
     return object_names
+
 
 def put_s3_object(myfile):
     s3 = boto3.resource('s3')
-    key = bucket_prefix + "/" + myfile
-    print("Uploading file : {}, to S3 location : {}/{}".format(myfile, bucket_name, key))
-    s3.Object(bucket_name, key).put(Body=open('./{}'.format(myfile), 'rb'))
+    assetId = os.path.splitext(myfile)[0]
+    key = bucket_prefix + "/" + assetId + '/' + myfile
+    print("Uploading file : {}, to S3 location : {}/{}".format(myfile,
+                                                               bucket_name,
+                                                               key
+                                                               ))
+
+    try:
+        s3.Object(bucket_name, key).load()
+    except botocore.exceptions.ClientError as err:
+        if err.response['Error']['Code'] == '404':
+            # the object doesn't already exist, so upload it
+            myfile = '01.json'
+            #s3.Object(bucket_name, key).put(Body=open('./{}'.format(myfile), 'rb'))
+            print("I'm gonna upload this motha")
+        else:
+            # the object already exists, so do not upload it
+            print("I'm gonna do nothing")
+
+
 #    print('bucket key is: ' + key)
 #    return myfile
 
-def get_ddb_object_names(table, attributes):
-    ddbclient = boto3.client('dynamodb')
-    objectnames = ddbclient.scan(
-            TableName=table,
-            AttributesToGet=attributes
+
+def get_ddb_object_names(table_name, attributes):
+    dynamodb = boto3.resource('dynamodb')
+    table = dynamodb.Table(table_name)
+    objectnames = table.scan(
+            ProjectionExpression=attributes
             )
-    for objectname in objectnames['Contents']:
-        print(objectname['Key'])
+    object_names = []
+    for objectname in objectnames['Items']:
+        object_names.append(objectname['itemname'])
+
+    result = json.dumps(object_names,
+                        sort_keys=True,
+                        indent=2)
+
+    print(highlight(
+              result,
+              lexers.JsonLexer(),
+              formatters.TerminalFormatter()
+    ))
+
+    return object_names
 
 
 def main():
@@ -62,14 +107,20 @@ def main():
     bucket_name = config['AWS']['bucket_name']
     bucket_prefix = config['AWS']['bucket_prefix']
     table_name = config['AWS']['table_name']
-    table_attributes = config['AWS']['table_attributes']
+    table_attributes = config['AWS']['table_attributes'].split(',')
 
     print("bucket name is : {}".format(bucket_name))
     print("bucket prefix is : {}".format(bucket_prefix))
+    #filenames = get_s3_objectnames(bucket_name, bucket_prefix)
 
-    filenames = get_s3_objectnames(bucket_name, bucket_prefix)
+    print("table name is : {}".format(table_name))
+    for attributes in table_attributes:
+        print("table attributes are : {}".format(attributes))
+    filenames2 = get_ddb_object_names(table_name, table_attributes)
+
     pool = ThreadPool(processes=6)
     pool.map(put_s3_object, filenames)
+
 
 if __name__ == "__main__":
     main()

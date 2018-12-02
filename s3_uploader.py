@@ -40,10 +40,6 @@ def put_s3_object(myfile):
     s3 = boto3.resource('s3')
     assetId = os.path.splitext(myfile)[0]
     key = bucket_prefix + "/" + assetId + '/' + myfile
-    print("Uploading file : {}, to S3 location : {}/{}".format(myfile,
-                                                               bucket_name,
-                                                               key
-                                                               ))
 
     try:
         s3.Object(bucket_name, key).load()
@@ -51,11 +47,16 @@ def put_s3_object(myfile):
         if err.response['Error']['Code'] == '404':
             # the object doesn't already exist, so upload it
             myfile = '01.json'
-            #s3.Object(bucket_name, key).put(Body=open('./{}'.format(myfile), 'rb'))
-            print("I'm gonna upload this motha")
+            print('Uploading file "{}", to S3 location "{}/{}"'.format(myfile,
+                                                                       bucket_name,
+                                                                       key
+                                                                       ))
+            s3.Object(bucket_name, key).put(Body=open('./{}'.format(myfile), 'rb'))
         else:
-            # the object already exists, so do not upload it
-            print("I'm gonna do nothing")
+            print("I got an unexpected error code from S3: {}".format(err.response['Error']['Code']))
+    else:
+        # the object already exists, so do not upload it
+        print("Doing nothing, the Object already exisits: {}".format(key))
 
 
 #    print('bucket key is: ' + key)
@@ -107,16 +108,16 @@ def main():
     bucket_name = config['AWS']['bucket_name']
     bucket_prefix = config['AWS']['bucket_prefix']
     table_name = config['AWS']['table_name']
-    table_attributes = config['AWS']['table_attributes'].split(',')
+    table_attributes = config['AWS']['table_attributes']
 
     print("bucket name is : {}".format(bucket_name))
     print("bucket prefix is : {}".format(bucket_prefix))
     #filenames = get_s3_objectnames(bucket_name, bucket_prefix)
 
     print("table name is : {}".format(table_name))
-    for attributes in table_attributes:
+    for attributes in table_attributes.split(','):
         print("table attributes are : {}".format(attributes))
-    filenames2 = get_ddb_object_names(table_name, table_attributes)
+    filenames = get_ddb_object_names(table_name, table_attributes)
 
     pool = ThreadPool(processes=6)
     pool.map(put_s3_object, filenames)

@@ -66,8 +66,8 @@ def put_s3_object(myfile):
 def get_ddb_object_names(table_name, attributes):
     dynamodb = boto3.resource('dynamodb')
     table = dynamodb.Table(table_name)
-    objectnames = table.scan(
-            ProjectionExpression=attributes
+    object_names = table.scan(
+            ProjectionExpression='assetId, assetPrefix'
             )
     object_names = []
     for objectname in objectnames['Items']:

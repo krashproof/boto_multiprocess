@@ -10,9 +10,6 @@ import configparser
 #from boto3.s3.connection import S3Connection
 from multiprocessing.pool import ThreadPool
 
-#filenames = ['01.json', '02.json', '03.json', '04.json', '05.json', '06.json', '07.json', '08.json', '09.json', '10.json']
-#filenames = ['11.json', '12.json', '13.json', '14.json', '15.json', '16.json', '17.json', '18.json', '19.json', '20.json']
-
 
 def get_s3_objectnames(bucket, prefix):
     s3client = boto3.client('s3')
@@ -66,12 +63,12 @@ def put_s3_object(myfile):
 def get_ddb_object_names(table_name, attributes):
     dynamodb = boto3.resource('dynamodb')
     table = dynamodb.Table(table_name)
-    object_names = table.scan(
-            ProjectionExpression='assetId, assetPrefix'
+    objectnames = table.scan(
+            ProjectionExpression=attributes
             )
     object_names = []
     for objectname in objectnames['Items']:
-        object_names.append(objectname['itemname'])
+        object_names.append(objectname[attributes.split(',')[0]])
 
     result = json.dumps(object_names,
                         sort_keys=True,
@@ -125,4 +122,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-

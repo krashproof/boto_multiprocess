@@ -4,9 +4,10 @@ import boto3
 import botocore
 import json
 import os
+from functools import partial
 from random import random
 from time import sleep
-from  pygments import highlight, lexers, formatters
+from pygments import highlight, lexers, formatters
 import argparse
 import configparser
 from multiprocessing.pool import ThreadPool
@@ -40,28 +41,47 @@ def get_s3_objectnames(bucket, prefix):
     return object_names
 
 
-def put_s3_object(myfile):
+def put_s3_object(filenames_tuple, pool_workers, max_index):
+    index, myfile = filenames_tuple
+    global total_bytes_uploaded
+
     s3 = boto3.resource('s3')
     assetId = os.path.splitext(myfile)[0]
     key = bucket_prefix + "/" + assetId + '/' + myfile
-    total_bytes_uploaded[key] = 0
-    max_value = 100
-    progress_bar = Bar(title=key, max_value=max_value, fallback=True)
 
-    progress_bar.cursor.clear_lines(5)
-    progress_bar.cursor.save()
+    max_percent = 100
+    total_bytes_uploaded[index] = {}
+    total_bytes_uploaded[index][assetId] = 0
 
-    def simple_tree(current_value):
-        max_value = 100
-        current_values = [Value(0) for i in range(2)]
-        default_values = dict(type=Bar, kwargs=dict(max_value=max_value))
-
-        progress_tree = {}
-
-        for upload_object in filenames:
-            progress_tree["Total Upload Progress"] = {
-                upload_object: BarDescriptor(value=current_values[0], **default_values)
+    current_values = [Value(0) for i in range(max_index)]
+    default_values = dict(type=Bar, kwargs=dict(max_value=max_percent))
+    progress_bar = Bar(title=assetId, max_value=max_percent, fallback=True)
+    progress_bar_title = "Total Upload Progress"
+    progress_tree = {
+            "Total Upload Progress": {
+                }
             }
+
+    def increment_values(obj):
+        for val in current_values:
+            if val.value >= max_percent:
+                del progress_tree[progress_bar_title][index]
+                break
+            val.value += 1
+
+    def done_yet(obj):
+        return all(val.value == max_percent for val in current_values)
+
+    def multi_progress_tree(progress_tree):
+        progress_tree[progress_bar_title][index] = {
+            myfile: BarDescriptor(
+                value=current_values[index], **default_values
+                )
+        }
+
+    def multiple_uploads_progress_tree(current_value):
+
+        multi_progress_tree(progress_tree)
 
         t = Terminal()
         status_output = ProgressTree(term=t)
@@ -69,29 +89,26 @@ def put_s3_object(myfile):
         # Create space in the termnial for the status chart
         status_output.make_room(progress_tree)
 
-        def increment_values(obj):
-            for val in current_values:
-                if val.value < max_value:
-                    val.value += 1
-                    break
-
-        def done_yet(obj):
-            return all(val.value == max_value for val in current_values)
-
         while not done_yet(progress_tree):
             sleep(0.2 * random())
+            status_output.cursor.restore()
+            increment_values(progress_tree)
+            status_output.draw(progress_tree, BarDescriptor(default_values))
 
-    def simple_bar(current_value):
+    def single_uploads_progress_bar(current_value):
         progress_bar.cursor.restore()
         progress_bar.draw(value=current_value)
 
     def get_percent_done(bytes_uploaded):
             file_size = os.stat(myfile).st_size
-            global total_bytes_uploaded
-            total_bytes_uploaded[key] = total_bytes_uploaded[key] + bytes_uploaded
-            percent_done = int((total_bytes_uploaded[key] / file_size) * 100)
-
-            simple_bar(percent_done)
+            total_bytes_uploaded[index][assetId] = total_bytes_uploaded[index][assetId] + bytes_uploaded
+            percent_done = int((total_bytes_uploaded[index][assetId] / file_size) * 100)
+            if pool_workers > 1:
+                #print("running multiple progress")
+                multiple_uploads_progress_tree(percent_done)
+            else:
+                #print("running single progress")
+                single_uploads_progress_bar(percent_done)
 
     try:
         s3.Object(bucket_name=bucket_name, key=key).load()
@@ -99,21 +116,25 @@ def put_s3_object(myfile):
         if err.response['Error']['Code'] == '404':
             # the object doesn't already exist, so upload it
             myfile = '01.json'
-            print('Uploading file "{}", to S3 location "{}/{}"'.format(myfile,
-                                                                       bucket_name,
-                                                                       key
-                                                                       ))
+            #print('Uploading object index {}, filename "{}", '
+            #      ' to S3 location "{}/{}"'.format(index, myfile,
+            #                                       bucket_name, key
+            #                                       ))
+            progress_bar.cursor.clear_lines(5)
+            progress_bar.cursor.save()
+
             s3.meta.client.upload_file(
                     myfile,
                     Bucket=bucket_name, Key=key,
                     Callback=get_percent_done
-#                    Callback=tree
                     )
         else:
-            print("I got an unexpected error code from S3: {}".format(err.response['Error']['Code']))
+            print('I got an unexpected error code '
+                  'from S3: {}'.format(err.response['Error']['Code']))
     else:
         # the object already exists, so do not upload it
-        print("Doing nothing, the Object already exisits: {}".format(key))
+        print('Doing nothing for object index: {},'
+              ' the Object already exisits: {}'.format(index, key))
 
     sleep(random())
 
@@ -175,10 +196,14 @@ def main():
         print("table attributes are : {}".format(attributes))
 #    filenames = get_ddb_object_names(table_name, table_attributes)
 #    filenames = ["01.json"]
-    filenames = ["01.json", "02.json"]
+    filenames = ["01.json", "02.json", "03.json", "04.json", "05.json"]
+    max_index = len(filenames)
+
+    def pool_function_args(filenames_tuple):
+        put_s3_object(filenames_tuple, parallelism, max_index)
 
     pool = ThreadPool(processes=parallelism)
-    pool.map(put_s3_object, filenames)
+    pool.map(pool_function_args, enumerate(filenames))
 
 
 if __name__ == "__main__":

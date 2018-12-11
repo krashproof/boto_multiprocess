@@ -56,9 +56,10 @@ def put_s3_object(filenames_tuple, pool_workers, max_index):
     current_values = [Value(0) for i in range(max_index)]
     default_values = dict(type=Bar, kwargs=dict(max_value=max_percent))
     progress_bar = Bar(title=assetId, max_value=max_percent, fallback=True)
-    progress_bar_title = "Total Upload Progress"
+
+    progress_bar_title = "Total Progress"
     progress_tree = {
-            "Total Upload Progress": {
+            "Total Progress": {
                 }
             }
 
@@ -108,6 +109,8 @@ def put_s3_object(filenames_tuple, pool_workers, max_index):
                 multiple_uploads_progress_tree(percent_done)
             else:
                 #print("running single progress")
+                progress_bar.cursor.clear_lines(max_index)
+                progress_bar.cursor.save()
                 single_uploads_progress_bar(percent_done)
 
     try:
@@ -115,13 +118,11 @@ def put_s3_object(filenames_tuple, pool_workers, max_index):
     except botocore.exceptions.ClientError as err:
         if err.response['Error']['Code'] == '404':
             # the object doesn't already exist, so upload it
-            myfile = '01.json'
+            #myfile = '01.json'
             #print('Uploading object index {}, filename "{}", '
             #      ' to S3 location "{}/{}"'.format(index, myfile,
             #                                       bucket_name, key
             #                                       ))
-            progress_bar.cursor.clear_lines(5)
-            progress_bar.cursor.save()
 
             s3.meta.client.upload_file(
                     myfile,
@@ -196,7 +197,8 @@ def main():
         print("table attributes are : {}".format(attributes))
 #    filenames = get_ddb_object_names(table_name, table_attributes)
 #    filenames = ["01.json"]
-    filenames = ["01.json", "02.json", "03.json", "04.json", "05.json"]
+    filenames = ["01.json", "02.json", "03.json"]
+    #filenames = ["01.json", "02.json", "03.json", "04.json", "05.json"]
     max_index = len(filenames)
 
     def pool_function_args(filenames_tuple):
